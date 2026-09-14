@@ -8,9 +8,8 @@
 # github.com/bitwarden/self-host if they diverge.
 #
 # Package matching uses each distro's own origin/source metadata (dpkg's
-# ${Source} field, apk's {origin} field) instead of a manual alias table,
-# so e.g. "openssl" also matches libssl3/libcrypto3 with nothing to
-# maintain as packages get renamed.
+# ${Source} field, apk's {origin} field) so e.g. "openssl" also matches 
+# libssl3/libcrypto3.
 #
 # This does not perform a real install (no compose, no DB, no license
 # key) — it only pulls the images and inspects package metadata.
