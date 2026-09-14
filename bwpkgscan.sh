@@ -23,8 +23,13 @@
 set -euo pipefail
 
 readonly IMAGE_REPO="ghcr.io/bitwarden"
-readonly DEFAULT_CORE_SERVICES="admin api attachments icons identity notifications nginx sso events scim mssqlmigratorutility setup lite"
-SERVICES="${DEFAULT_CORE_SERVICES} web"
+# Two groups, each sorted alphabetically: ordinary persistent services
+# first, then anything with a caveat (one-shot utility, alternate deploy
+# mode, or opt-in enterprise add-on) at the bottom, from service_note()
+# below.
+readonly SERVICES_STANDARD="admin api attachments icons identity nginx notifications web"
+readonly SERVICES_WITH_NOTES="events lite mssqlmigratorutility scim setup sso"
+SERVICES="${SERVICES_STANDARD} ${SERVICES_WITH_NOTES}"
 WEBVER=""
 MSSQL_TAG=""
 CSV_FILE=""
@@ -55,7 +60,7 @@ usage() {
 Usage: $(basename "$0") [options] <core-version> <package1> [package2 ...]
 
 Every published Bitwarden self-host image is scanned by default:
-  ${DEFAULT_CORE_SERVICES} web
+  ${SERVICES_STANDARD} ${SERVICES_WITH_NOTES}
 Images that aren't persistent containers in a standard install (one-shot
 utilities, enterprise-only add-ons, the alternate "lite" deployment) get a
 [note] in the output rather than being silently skipped.
