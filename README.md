@@ -56,6 +56,13 @@ check is what stops a short term like `cat` from false-matching inside
 unrelated words like `certificates`, while still letting `curl` match
 `libcurl`.
 
+If you already know the exact package, you can pass its full name as
+reported by the distro, version included, e.g. `libcrypto3-3.5.7-r0` or
+`curl-8.5.0-2ubuntu10.8` copied straight out of `apk list --installed` or
+`dpkg -l`. The version part is trimmed off automatically before matching
+(matching is always against the bare name/origin), so pasting one in
+works without editing it down first.
+
 ## Options
 
 ```

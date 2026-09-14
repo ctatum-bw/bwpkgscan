@@ -59,6 +59,14 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [options] <core-version> <package1> [package2 ...]
 
+Each <packageN> is a search term matched against installed package names
+and their distro origin/source metadata, so "openssl" also finds
+libssl3/libcrypto3. You can also pass a package's exact name as reported
+by the distro, version included (e.g. libcrypto3-3.5.7-r0 or
+curl-8.5.0-2ubuntu10.8) - the version part is trimmed off automatically
+before matching, so pasting one straight out of \`apk list --installed\`
+or \`dpkg -l\` output works as-is.
+
 Every published Bitwarden self-host image is scanned by default:
   ${SERVICES_STANDARD} ${SERVICES_WITH_NOTES}
 Images that aren't persistent containers in a standard install (one-shot
@@ -211,6 +219,30 @@ printf 'OSNAME\t%s\n' "${OS}"
 
 for term in ${PKGS}; do
   term_lc=$(printf '%s' "${term}" | tr 'A-Z' 'a-z')
+
+  # If the search term itself looks like a full "name-version" string
+  # (e.g. copied straight out of `apk list --installed` or `dpkg -l`,
+  # such as libcrypto3-3.5.7-r0), strip the version part before matching.
+  # Splits at the *first* hyphen immediately followed by a digit, since
+  # that's the package-name/version boundary even when the version itself
+  # has multiple hyphenated segments (Debian's "8.5.0-2ubuntu10.8" style).
+  # Matching always happens against the bare package name/origin, and the
+  # actual installed version is reported regardless of what was searched
+  # for, so trimming here just makes pasting an exact name work as-is.
+  term_lc=$(printf '%s' "${term_lc}" | awk '
+    {
+      s = $0
+      n = length(s); splitpos = 0
+      for (i = 1; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (c == "-") {
+          nx = substr(s, i + 1, 1)
+          if (nx ~ /[0-9]/) { splitpos = i; break }
+        }
+      }
+      if (splitpos > 0) print substr(s, 1, splitpos - 1)
+      else print s
+    }')
 
   case "${OS}" in
     debian)
