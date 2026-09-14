@@ -35,6 +35,7 @@ MSSQL_TAG=""
 CSV_FILE=""
 FORCE=false
 declare -a EXTRA_IMAGES=()
+declare -a PKGS_FILES=()
 
 # Caveats appended to a service's header line when it's not a persistent,
 # always-on container in a standard install (one-shot utility, alternate
@@ -57,7 +58,7 @@ service_note() {
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [options] <core-version> <package1> [package2 ...]
+Usage: $(basename "$0") [options] <core-version> [package1 package2 ...]
 
 Each <packageN> is a search term matched against installed package names
 and their distro origin/source metadata, so "openssl" also finds
@@ -66,6 +67,9 @@ by the distro, version included (e.g. libcrypto3-3.5.7-r0 or
 curl-8.5.0-2ubuntu10.8) - the version part is trimmed off automatically
 before matching, so pasting one straight out of \`apk list --installed\`
 or \`dpkg -l\` output works as-is.
+
+Package names can also come from a file with --pkgs-file, instead of or
+alongside ones given on the command line.
 
 Every published Bitwarden self-host image is scanned by default:
   ${SERVICES_STANDARD} ${SERVICES_WITH_NOTES}
@@ -88,12 +92,16 @@ Options:
   --extra-image name=repo:tag Scan an arbitrary additional image (repeatable)
   --csv <path>                Also write results as CSV to <path>
   --force                     Overwrite an existing --csv file without asking
+  --pkgs-file <path>          Read package names from a file, one or more
+                               per line. Blank lines and lines starting
+                               with # are ignored. Repeatable.
 
 Examples:
   $(basename "$0") 2026.8.1 curl openssl
   $(basename "$0") --services admin,api,identity,web 2026.8.1 libssl3 curl
   $(basename "$0") --include-mssql 2019-latest 2026.8.1 openssl
   $(basename "$0") --csv results.csv 2026.8.1 curl openssl
+  $(basename "$0") --pkgs-file cve-2026-1234.txt 2026.8.1
 EOF
 }
 
@@ -106,6 +114,7 @@ while [[ "${1:-}" == --* ]]; do
     --extra-image) EXTRA_IMAGES+=("$2"); shift 2 ;;
     --csv) CSV_FILE="$2"; shift 2 ;;
     --force) FORCE=true; shift ;;
+    --pkgs-file) PKGS_FILES+=("$2"); shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *)
       echo "Unknown flag: $1" >&2
@@ -115,7 +124,7 @@ while [[ "${1:-}" == --* ]]; do
   esac
 done
 
-if [[ $# -lt 2 ]]; then
+if [[ $# -lt 1 ]]; then
   usage
   exit 1
 fi
@@ -123,6 +132,28 @@ fi
 COREVER="$1"; shift
 PKGS="$*"
 WEBVER="${WEBVER:-$COREVER}"
+
+# Merge in any --pkgs-file contents: strip blank lines and whole-line
+# comments (#...), drop stray \r from Windows-edited files, then fold
+# newlines into spaces so the result is just more words in the same
+# space-separated PKGS string the rest of the script already expects.
+for pkgs_file in "${PKGS_FILES[@]+"${PKGS_FILES[@]}"}"; do
+  if [[ ! -r "${pkgs_file}" ]]; then
+    echo "ERROR: cannot read package list file: ${pkgs_file}" >&2
+    exit 1
+  fi
+  file_pkgs="$(tr -d '\r' < "${pkgs_file}" | grep -Ev '^[[:space:]]*(#|$)' | tr '\n' ' ')"
+  PKGS="${PKGS} ${file_pkgs}"
+done
+
+# Normalize whitespace and make sure something actually ended up in PKGS,
+# whether it came from the command line, --pkgs-file, or both.
+PKGS="$(printf '%s' "${PKGS}" | tr -s '[:space:]' ' ')"
+PKGS="${PKGS# }"; PKGS="${PKGS% }"
+if [[ -z "${PKGS}" ]]; then
+  echo "ERROR: no packages to search for (pass them as arguments, or via --pkgs-file)" >&2
+  exit 1
+fi
 
 # --csv suppresses the per-package tables (noisy alongside a progress bar)
 # and shows a single-line progress bar instead. All the same data still

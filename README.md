@@ -66,7 +66,7 @@ works without editing it down first.
 ## Options
 
 ```
-Usage: bwpkgscan.sh [options] <core-version> <package1> [package2 ...]
+Usage: bwpkgscan.sh [options] <core-version> [package1 package2 ...]
 
   --webv <version>            Web image version (default: same as core version)
   --services svc1,svc2,...    Override the default (full) service list
@@ -74,6 +74,23 @@ Usage: bwpkgscan.sh [options] <core-version> <package1> [package2 ...]
   --extra-image name=repo:tag Scan an arbitrary additional image (repeatable)
   --csv <path>                Write results as CSV instead of a console table
   --force                     Overwrite an existing --csv file without asking
+  --pkgs-file <path>          Read package names from a file (repeatable)
+```
+
+Package names can be given on the command line, read from a file with
+`--pkgs-file`, or both at once, they're merged together either way. A
+package list file has one or more names per line; blank lines and lines
+starting with `#` are ignored, so you can keep a running list with notes:
+
+```
+# CVE-2026-1234
+curl
+openssl
+libcrypto3-3.5.7-r0
+```
+
+```bash
+./bwpkgscan.sh --pkgs-file cve-2026-1234.txt 2026.8.1
 ```
 
 Every image Bitwarden publishes for a release is scanned by default:
