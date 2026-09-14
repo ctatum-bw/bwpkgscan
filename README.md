@@ -1,29 +1,23 @@
 # bwpkgscan
 
-Internal tool for answering customer-requested vulnerability scans against
-[Bitwarden's official self-host release](https://github.com/bitwarden/self-host).
-When a customer asks "is version X affected by CVE-YYYY (which lives in
-`openssl`/`curl`/etc.)?", this pulls every published service image for
-that release and reports installed package versions in each one, without
-standing up a real deployment, so the answer doesn't require provisioning
-the customer's exact version just to check it.
+Pulls every published image for a given Bitwarden self-host release and
+reports installed package versions in each one, for answering
+customer-requested vulnerability scans (e.g. "is version X affected by
+CVE-YYYY in `openssl`/`curl`?") without standing up a real deployment.
 
 ## What this does *not* do
 
-- Does **not** run `docker-compose`, spin up MSSQL, or register an
-  installation ID/key. It only pulls each image and inspects its package
-  metadata; no real Bitwarden instance is ever running.
-- Does **not** modify or touch an existing Bitwarden install on the host.
-- Does **not** determine CVE applicability on its own. It reports
-  installed package versions so you can cross-reference them against the
-  CVE/advisory the customer is asking about.
+- Doesn't run `docker-compose`, spin up MSSQL, or register an install ID.
+  It only pulls images and inspects package metadata.
+- Doesn't modify or touch an existing Bitwarden install.
+- Doesn't judge CVE applicability. It reports installed versions; you
+  cross-reference against the advisory.
 
 ## Requirements
 
-- Docker, with permission to run it (either via `sudo` or by being in the
-  `docker` group: `sudo usermod -aG docker $USER`, then re-login).
-- Outbound network access to `ghcr.io` (and `docker.io` if you add
-  `key-connector` yourself via `--extra-image`).
+- Docker, runnable without extra setup (`sudo`, or in the `docker` group).
+- Network access to `ghcr.io` (and `docker.io` for `key-connector`, if
+  added via `--extra-image`).
 
 ## Quick start
 
@@ -31,37 +25,22 @@ the customer's exact version just to check it.
 ./bwpkgscan.sh 2026.8.1 curl openssl
 ```
 
-This pulls every image in that Bitwarden release and reports which
-installed packages match `curl` or `openssl` in each one, e.g. to check
-a customer's reported version against a CVE affecting one of those
-packages.
+## How matching works
 
-## How package matching works
+`openssl` also finds `libssl3`/`libcrypto3` because the script checks each
+distro's own origin/source metadata, not just the package name:
 
-Asking for `openssl` and expecting it to also find `libssl3`/`libcrypto3`
-is a **naming** problem, not a fuzzy-search problem: those strings share
-no common substring. Instead of a hand-maintained alias table, this script
-queries each distro's own packaging metadata, which already records the
-relationship:
+- **Debian/Ubuntu (dpkg):** the `Source` field (`libssl3t64`'s Source is
+  `openssl`).
+- **Alpine (apk):** the `{origin}` field (`libssl3`'s origin is `openssl`).
 
-- **Debian/Ubuntu (dpkg):** the `Source` field. e.g. `libssl3t64`'s
-  `Source` is literally `openssl`.
-- **Alpine (apk):** the `{origin}` field. e.g. `libssl3`'s origin is
-  `openssl`.
+Matches are anchored to a word boundary (start of name, optional `lib`
+prefix, end, hyphen, or a digit), so `cat` won't match inside
+`certificates`, but `curl` still matches `libcurl`.
 
-A search term matches if it appears in either the package name or its
-origin/source, anchored to a real word boundary (start of name, optional
-`lib` prefix, end of name, hyphen, or a following digit). That boundary
-check is what stops a short term like `cat` from false-matching inside
-unrelated words like `certificates`, while still letting `curl` match
-`libcurl`.
-
-If you already know the exact package, you can pass its full name as
-reported by the distro, version included, e.g. `libcrypto3-3.5.7-r0` or
-`curl-8.5.0-2ubuntu10.8` copied straight out of `apk list --installed` or
-`dpkg -l`. The version part is trimmed off automatically before matching
-(matching is always against the bare name/origin), so pasting one in
-works without editing it down first.
+You can also paste an exact versioned name straight out of
+`apk list --installed` or `dpkg -l` (e.g. `libcrypto3-3.5.7-r0`); the
+version is stripped automatically before matching.
 
 ## Options
 
@@ -77,10 +56,8 @@ Usage: bwpkgscan.sh [options] <core-version> [package1 package2 ...]
   --pkgs-file <path>          Read package names from a file (repeatable)
 ```
 
-Package names can be given on the command line, read from a file with
-`--pkgs-file`, or both at once, they're merged together either way. A
-package list file has one or more names per line; blank lines and lines
-starting with `#` are ignored, so you can keep a running list with notes:
+`--pkgs-file` names can be combined with ones on the command line. One or
+more per line; blank lines and `#` comments are ignored:
 
 ```
 # CVE-2026-1234
@@ -89,65 +66,44 @@ openssl
 libcrypto3-3.5.7-r0
 ```
 
-```bash
-./bwpkgscan.sh --pkgs-file cve-2026-1234.txt 2026.8.1
-```
-
-Every image Bitwarden publishes for a release is scanned by default:
-`admin api attachments icons identity nginx notifications web` (standard,
-persistent services), then `events lite mssqlmigratorutility scim setup
+Default scan set: `admin api attachments icons identity nginx
+notifications web`, then `events lite mssqlmigratorutility scim setup
 sso` (each flagged with a short note: one-shot utility, alternate deploy
-mode, or opt-in enterprise add-on, since they aren't part of a default
-customer install the same way the first group is).
+mode, or opt-in enterprise add-on).
 
-**Excluded by default, on purpose:**
-- `mssql`: versioned independently of the Bitwarden release (SQL Server
-  tags, not release numbers). Add with `--include-mssql <tag>`.
-- `key-connector`: never migrated to `ghcr.io` with everything else, and
-  its Docker Hub tags don't line up with the release version scheme. Add
-  manually if you need it:
+**Excluded by default:**
+- `mssql`: versioned independently of the release. Use `--include-mssql <tag>`.
+- `key-connector`: still on Docker Hub, not `ghcr.io`, and its tags don't
+  match the release scheme. Add manually:
   `--extra-image key-connector=docker.io/bitwarden/key-connector:<tag>`
 
 ## Examples
 
 ```bash
-# Default: every published image, console output
 ./bwpkgscan.sh 2026.8.1 curl openssl
-
-# Just a few services
 ./bwpkgscan.sh --services admin,api,identity,web 2026.8.1 libssl3 curl
-
-# Web on a different version than core (they can diverge, check
-# version.json in the release tag on github.com/bitwarden/self-host)
 ./bwpkgscan.sh --webv 2026.7.1 2026.8.1 openssl
-
-# Include the SQL Server image too
 ./bwpkgscan.sh --include-mssql 2019-latest 2026.8.1 openssl
-
-# Write structured results to a file instead of a console table
 ./bwpkgscan.sh --csv results.csv 2026.8.1 curl openssl vim
+./bwpkgscan.sh --pkgs-file cve-2026-1234.txt 2026.8.1
 ```
 
 ## CSV output
 
-`--csv <path>` switches the console from full per-package tables to a
-single-line progress bar, and writes structured rows to `<path>`:
+`--csv <path>` swaps the console tables for a progress bar and writes:
 
 ```
 service,image,os,package,version,origin,search_term,status,detail
 ```
 
-`status` is one of `match`, `no_match`, `skip` (image failed to pull,
-`detail` has the reason), or `error` (in-container scan failed). If
-`<path>` already exists you'll be prompted before it's overwritten, unless
-you pass `--force`.
+`status` is `match`, `no_match`, `skip` (pull failed, see `detail`), or
+`error` (in-container scan failed). Existing files prompt before being
+overwritten unless `--force` is passed.
 
-## A note on staying current
+## Staying current
 
-Bitwarden has changed both its container registry (Docker Hub to
-`ghcr.io`) and its versioning scheme (unified core/web/key-connector
-version numbers, now tracked separately) at least once. If a service
-starts reporting `[skip] could not pull ...` across the board, check
-`https://github.com/bitwarden/self-host/blob/v<RELEASE>/version.json` and
-the package list at `https://github.com/orgs/bitwarden/packages?repo_name=self-host`
+Bitwarden has changed registries (Docker Hub to `ghcr.io`) and versioning
+(core/web/key-connector now tracked separately) before. If everything
+starts `[skip]`ping, check
+`https://github.com/bitwarden/self-host/blob/v<RELEASE>/version.json`
 before assuming the script is broken.
