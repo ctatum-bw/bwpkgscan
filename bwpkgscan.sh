@@ -8,8 +8,8 @@
 # github.com/bitwarden/self-host if they diverge.
 #
 # Package matching uses each distro's own origin/source metadata (dpkg's
-# ${Source} field, apk's {origin} field) so e.g. "openssl" also matches 
-# libssl3/libcrypto3.
+# ${Source} field, apk's {origin} field), so e.g. "openssl" also matches
+# libssl3/libcrypto3 with nothing to maintain as packages get renamed.
 #
 # This does not perform a real install (no compose, no DB, no license
 # key) — it only pulls the images and inspects package metadata.
@@ -35,14 +35,20 @@ declare -a EXTRA_IMAGES=()
 # always-on container in a standard install (one-shot utility, alternate
 # deployment mode, or an optional enterprise add-on). Kept short since
 # they're shown inline.
-declare -A SERVICE_NOTES=(
-  [sso]="enterprise, opt-in"
-  [events]="enterprise, opt-in"
-  [scim]="enterprise, opt-in"
-  [mssqlmigratorutility]="one-shot migration helper"
-  [setup]="one-shot config generator"
-  [lite]="alt all-in-one deploy, not run with full stack"
-)
+#
+# A function + case statement, kept POSIX/bash-3.2 compatible so it also
+# works with macOS's default system bash.
+service_note() {
+  case "$1" in
+    sso) echo "enterprise, opt-in" ;;
+    events) echo "enterprise, opt-in" ;;
+    scim) echo "enterprise, opt-in" ;;
+    mssqlmigratorutility) echo "one-shot migration helper" ;;
+    setup) echo "one-shot config generator" ;;
+    lite) echo "alt all-in-one deploy, not run with full stack" ;;
+    *) echo "" ;;
+  esac
+}
 
 usage() {
   cat <<EOF
@@ -298,10 +304,14 @@ scan_image() {
 
   if [[ "${QUIET}" != true ]]; then
     local note=""
-    if [[ -n "${SERVICE_NOTES[${label}]:-}" ]]; then
-      note="  (${SERVICE_NOTES[${label}]})"
+    local this_note
+    this_note="$(service_note "${label}")"
+    if [[ -n "${this_note}" ]]; then
+      note="  (${this_note})"
     fi
-    echo "-- ${BOLD}${label^^}${RESET}: ${image}${note}"
+    local label_upper
+    label_upper="$(printf '%s' "${label}" | tr '[:lower:]' '[:upper:]')"
+    echo "-- ${BOLD}${label_upper}${RESET}: ${image}${note}"
   fi
 
   local pull_err
