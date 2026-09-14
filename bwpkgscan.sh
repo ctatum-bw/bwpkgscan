@@ -238,8 +238,34 @@ set -eu
 
 if command -v dpkg-query >/dev/null 2>&1; then
   OS="debian"
+  # Query once, not once per search term. Reorder into a common
+  # name/version/extra shape (extra = Source) so the matcher below can be
+  # shared with Alpine instead of duplicated per distro. ${Source} is set
+  # when a package was built from a differently-named source package
+  # (e.g. libssl3t64's Source is "openssl"); strip the trailing
+  # "(version)" dpkg sometimes appends when it differs from the binary.
+  ALL_PKGS=$(dpkg-query -W -f='${Package}\t${Source}\t${Version}\n' 2>/dev/null | awk -F'\t' '
+    { name=$1; source=$2; ver=$3; gsub(/ *\(.*/, "", source); print name "\t" ver "\t" source }')
 elif command -v apk >/dev/null 2>&1; then
   OS="alpine"
+  # Same one-time query and normalization for Alpine. extra = {origin},
+  # the aport a package was split from (e.g. libssl3's origin is
+  # "openssl"). Name/version are combined in apk's output ("name-version")
+  # and split here, once, instead of on every search term.
+  ALL_PKGS=$(apk list --installed 2>/dev/null | awk '
+    {
+      nv=$1
+      start=index($0,"{"); endp=index($0,"}")
+      origin=""
+      if (start>0 && endp>start) origin=substr($0,start+1,endp-start-1)
+      n=length(nv); splitpos=0
+      for (i=n; i>=1; i--) {
+        c=substr(nv,i,1)
+        if (c=="-") { nx=substr(nv,i+1,1); if (nx ~ /[0-9]/) { splitpos=i; break } }
+      }
+      if (splitpos>0) { name=substr(nv,1,splitpos-1); ver=substr(nv,splitpos+1) } else { name=nv; ver="" }
+      print name "\t" ver "\t" origin
+    }')
 else
   echo "ERROR: no dpkg or apk found in this image" >&2
   exit 1
@@ -275,61 +301,26 @@ for term in ${PKGS}; do
       else print s
     }')
 
-  case "${OS}" in
-    debian)
-      # ${Source}: set when a package was built from a differently-named
-      # source package (e.g. libssl3t64's Source is "openssl"). Match is
-      # anchored to a token boundary (start/hyphen, optional "lib" prefix,
-      # end/hyphen/digit) so short terms like "cat" don't hit mid-word
-      # (e.g. "certificates") while "curl" still matches "libcurl".
-      matches=$(dpkg-query -W -f='${Package}\t${Source}\t${Version}\n' 2>/dev/null | awk -F'\t' -v t="${term_lc}" '
-        function reesc(s,   i,c,out) {
-          out = ""
-          for (i = 1; i <= length(s); i++) {
-            c = substr(s, i, 1)
-            if (index(".^$*+?()[]{}|\\", c) > 0) out = out "\\" c
-            else out = out c
-          }
-          return out
-        }
-        BEGIN { pat = "(^|-)(lib)?" reesc(t) "($|-|[0-9])" }
-        {
-          name=$1; source=$2; ver=$3
-          gsub(/ *\(.*/, "", source)
-          namelc=tolower(name); sourcelc=tolower(source)
-          if (namelc ~ pat || (source!="" && sourcelc ~ pat)) print name "\t" ver "\t" source
-        }')
-      ;;
-    alpine)
-      # {origin}: the aport a package was split from (e.g. libssl3's
-      # origin is "openssl"). Same token-boundary matching as above.
-      matches=$(apk list --installed 2>/dev/null | awk -v t="${term_lc}" '
-        function reesc(s,   i,c,out) {
-          out = ""
-          for (i = 1; i <= length(s); i++) {
-            c = substr(s, i, 1)
-            if (index(".^$*+?()[]{}|\\", c) > 0) out = out "\\" c
-            else out = out c
-          }
-          return out
-        }
-        BEGIN { pat = "(^|-)(lib)?" reesc(t) "($|-|[0-9])" }
-        {
-          nv=$1
-          start=index($0,"{"); endp=index($0,"}")
-          origin=""
-          if (start>0 && endp>start) origin=substr($0,start+1,endp-start-1)
-          n=length(nv); splitpos=0
-          for (i=n; i>=1; i--) {
-            c=substr(nv,i,1)
-            if (c=="-") { nx=substr(nv,i+1,1); if (nx ~ /[0-9]/) { splitpos=i; break } }
-          }
-          if (splitpos>0) { name=substr(nv,1,splitpos-1); ver=substr(nv,splitpos+1) } else { name=nv; ver="" }
-          namelc=tolower(name); originlc=tolower(origin)
-          if (namelc ~ pat || (origin!="" && originlc ~ pat)) print name "\t" ver "\t" origin
-        }')
-      ;;
-  esac
+  # Matches against the name/version/extra cache built once above.
+  # Anchored to a token boundary (start/hyphen, optional "lib" prefix,
+  # end/hyphen/digit) so short terms like "cat" don't hit mid-word (e.g.
+  # "certificates") while "curl" still matches "libcurl".
+  matches=$(printf '%s\n' "${ALL_PKGS}" | awk -F'\t' -v t="${term_lc}" '
+    function reesc(s,   i,c,out) {
+      out = ""
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (index(".^$*+?()[]{}|\\", c) > 0) out = out "\\" c
+        else out = out c
+      }
+      return out
+    }
+    BEGIN { pat = "(^|-)(lib)?" reesc(t) "($|-|[0-9])" }
+    {
+      name=$1; ver=$2; extra=$3
+      namelc=tolower(name); extralc=tolower(extra)
+      if (namelc ~ pat || (extra!="" && extralc ~ pat)) print name "\t" ver "\t" extra
+    }')
 
   if [ -z "${matches}" ]; then
     printf '  %s: no match\n' "${term}"
