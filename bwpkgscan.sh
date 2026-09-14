@@ -16,10 +16,10 @@
 # key) — it only pulls the images and inspects package metadata.
 #
 # Usage:
-#   ./scan-bitwarden-stack.sh <core-version> <package1> [package2 ...]
-#   ./scan-bitwarden-stack.sh --webv <ver> <core-version> <pkg1> [pkg2 ...]
-#   ./scan-bitwarden-stack.sh --services api,identity,web <core-version> <pkg1> [pkg2 ...]
-#   ./scan-bitwarden-stack.sh --include-mssql <tag> <core-version> <pkg1> [pkg2 ...]
+#   ./bwpkgscan.sh <core-version> <package1> [package2 ...]
+#   ./bwpkgscan.sh --webv <ver> <core-version> <pkg1> [pkg2 ...]
+#   ./bwpkgscan.sh --services api,identity,web <core-version> <pkg1> [pkg2 ...]
+#   ./bwpkgscan.sh --include-mssql <tag> <core-version> <pkg1> [pkg2 ...]
 
 set -euo pipefail
 

@@ -1,4 +1,4 @@
-# bitwarden-pkg-scan
+# bwpkgscan
 
 Fast, repeatable OS-package auditing for [Bitwarden's official self-host
 release](https://github.com/bitwarden/self-host) — for a given release
@@ -26,7 +26,7 @@ before you actually upgrade a live install.
 ## Quick start
 
 ```bash
-./scan-bitwarden-stack.sh 2026.8.1 curl openssl
+./bwpkgscan.sh 2026.8.1 curl openssl
 ```
 
 This pulls every image in that Bitwarden release and reports which
@@ -55,7 +55,7 @@ unrelated words like `certificates`, while still letting `curl` match
 ## Options
 
 ```
-Usage: scan-bitwarden-stack.sh [options] <core-version> <package1> [package2 ...]
+Usage: bwpkgscan.sh [options] <core-version> <package1> [package2 ...]
 
   --webv <version>            Web image version (default: same as core version)
   --services svc1,svc2,...    Override the default (full) service list
@@ -85,20 +85,20 @@ looking at.
 
 ```bash
 # Default: every published image, console output
-./scan-bitwarden-stack.sh 2026.8.1 curl openssl
+./bwpkgscan.sh 2026.8.1 curl openssl
 
 # Just a few services
-./scan-bitwarden-stack.sh --services admin,api,identity,web 2026.8.1 libssl3 curl
+./bwpkgscan.sh --services admin,api,identity,web 2026.8.1 libssl3 curl
 
 # Web on a different version than core (they can diverge — check
 # version.json in the release tag on github.com/bitwarden/self-host)
-./scan-bitwarden-stack.sh --webv 2026.7.1 2026.8.1 openssl
+./bwpkgscan.sh --webv 2026.7.1 2026.8.1 openssl
 
 # Include the SQL Server image too
-./scan-bitwarden-stack.sh --include-mssql 2019-latest 2026.8.1 openssl
+./bwpkgscan.sh --include-mssql 2019-latest 2026.8.1 openssl
 
 # Write structured results to a file instead of a console table
-./scan-bitwarden-stack.sh --csv results.csv 2026.8.1 curl openssl vim
+./bwpkgscan.sh --csv results.csv 2026.8.1 curl openssl vim
 ```
 
 ## CSV output
