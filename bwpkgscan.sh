@@ -124,14 +124,18 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-# Bold the container/service name in console output so it stands out
-# against the (often much longer) image path. Disabled automatically when
-# stdout isn't a terminal (redirected to a file, piped, etc.) or NO_COLOR
-# is set, so it never leaks escape codes into logs.
-BOLD=""
-RESET=""
+# Console styling: bold for the service name, dim for secondary info,
+# green/yellow to distinguish matches from no-matches at a glance, red for
+# problems. Disabled automatically when stdout isn't a terminal (redirected
+# to a file, piped, etc.) or NO_COLOR is set, so it never leaks escape
+# codes into logs or the CSV.
+BOLD="" DIM="" GREEN="" YELLOW="" RED="" RESET=""
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   BOLD=$'\033[1m'
+  DIM=$'\033[2m'
+  GREEN=$'\033[32m'
+  YELLOW=$'\033[33m'
+  RED=$'\033[31m'
   RESET=$'\033[0m'
 fi
 
@@ -317,11 +321,13 @@ scan_image() {
   local pull_err
   if ! pull_err=$(docker pull "${image}" 2>&1 >/dev/null); then
     if [[ "${QUIET}" != true ]]; then
-      echo "  skip: ${pull_err}"
+      echo "  ${RED}skip:${RESET} ${pull_err}"
     fi
     csv_row "${label}" "${image}" "" "" "" "" "" "skip" "${pull_err}"
     if [[ "${QUIET}" == true ]]; then
       draw_progress "${label}" " [skip]"
+    else
+      echo
     fi
     return
   fi
@@ -342,7 +348,20 @@ scan_image() {
         ;;
       *)
         if [[ "${QUIET}" != true ]]; then
-          echo "${line}"
+          case "${line}" in
+            "os: "*)
+              echo "  ${DIM}${line}${RESET}"
+              ;;
+            *": no match")
+              echo "${YELLOW}${line}${RESET}"
+              ;;
+            "  "*)
+              echo "${GREEN}${line}${RESET}"
+              ;;
+            *)
+              echo "${line}"
+              ;;
+          esac
         fi
         ;;
     esac
@@ -353,13 +372,15 @@ scan_image() {
   if [[ "${docker_status}" -ne 0 ]]; then
     final_marker=" [warn]"
     if [[ "${QUIET}" != true ]]; then
-      echo "  warn: scan failed (no shell, or unsupported base)"
+      echo "  ${RED}warn:${RESET} scan failed (no shell, or unsupported base)"
     fi
     csv_row "${label}" "${image}" "" "" "" "" "" "error" "scan failed inside container"
   fi
 
   if [[ "${QUIET}" == true ]]; then
     draw_progress "${label}" "${final_marker}"
+  else
+    echo
   fi
 }
 
