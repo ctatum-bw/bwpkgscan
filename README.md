@@ -4,7 +4,7 @@ Internal tool for answering customer-requested vulnerability scans against
 [Bitwarden's official self-host release](https://github.com/bitwarden/self-host).
 When a customer asks "is version X affected by CVE-YYYY (which lives in
 `openssl`/`curl`/etc.)?", this pulls every published service image for
-that release and reports installed package versions in each one — without
+that release and reports installed package versions in each one, without
 standing up a real deployment, so the answer doesn't require provisioning
 the customer's exact version just to check it.
 
@@ -12,9 +12,9 @@ the customer's exact version just to check it.
 
 - Does **not** run `docker-compose`, spin up MSSQL, or register an
   installation ID/key. It only pulls each image and inspects its package
-  metadata — no real Bitwarden instance is ever running.
+  metadata; no real Bitwarden instance is ever running.
 - Does **not** modify or touch an existing Bitwarden install on the host.
-- Does **not** determine CVE applicability on its own — it reports
+- Does **not** determine CVE applicability on its own. It reports
   installed package versions so you can cross-reference them against the
   CVE/advisory the customer is asking about.
 
@@ -32,21 +32,21 @@ the customer's exact version just to check it.
 ```
 
 This pulls every image in that Bitwarden release and reports which
-installed packages match `curl` or `openssl` in each one — e.g. to check
+installed packages match `curl` or `openssl` in each one, e.g. to check
 a customer's reported version against a CVE affecting one of those
 packages.
 
 ## How package matching works
 
 Asking for `openssl` and expecting it to also find `libssl3`/`libcrypto3`
-is a **naming** problem, not a fuzzy-search problem — those strings share
+is a **naming** problem, not a fuzzy-search problem: those strings share
 no common substring. Instead of a hand-maintained alias table, this script
 queries each distro's own packaging metadata, which already records the
 relationship:
 
-- **Debian/Ubuntu (dpkg):** the `Source` field — e.g. `libssl3t64`'s
+- **Debian/Ubuntu (dpkg):** the `Source` field. e.g. `libssl3t64`'s
   `Source` is literally `openssl`.
-- **Alpine (apk):** the `{origin}` field — e.g. `libssl3`'s origin is
+- **Alpine (apk):** the `{origin}` field. e.g. `libssl3`'s origin is
   `openssl`.
 
 A search term matches if it appears in either the package name or its
@@ -72,14 +72,14 @@ Usage: bwpkgscan.sh [options] <core-version> <package1> [package2 ...]
 Every image Bitwarden publishes for a release is scanned by default:
 `admin api attachments icons identity nginx notifications web` (standard,
 persistent services), then `events lite mssqlmigratorutility scim setup
-sso` (each flagged with a short note — one-shot utility, alternate deploy
-mode, or opt-in enterprise add-on — since they aren't part of a default
+sso` (each flagged with a short note: one-shot utility, alternate deploy
+mode, or opt-in enterprise add-on, since they aren't part of a default
 customer install the same way the first group is).
 
 **Excluded by default, on purpose:**
-- `mssql` — versioned independently of the Bitwarden release (SQL Server
+- `mssql`: versioned independently of the Bitwarden release (SQL Server
   tags, not release numbers). Add with `--include-mssql <tag>`.
-- `key-connector` — never migrated to `ghcr.io` with everything else, and
+- `key-connector`: never migrated to `ghcr.io` with everything else, and
   its Docker Hub tags don't line up with the release version scheme. Add
   manually if you need it:
   `--extra-image key-connector=docker.io/bitwarden/key-connector:<tag>`
@@ -93,7 +93,7 @@ customer install the same way the first group is).
 # Just a few services
 ./bwpkgscan.sh --services admin,api,identity,web 2026.8.1 libssl3 curl
 
-# Web on a different version than core (they can diverge — check
+# Web on a different version than core (they can diverge, check
 # version.json in the release tag on github.com/bitwarden/self-host)
 ./bwpkgscan.sh --webv 2026.7.1 2026.8.1 openssl
 
@@ -113,17 +113,17 @@ single-line progress bar, and writes structured rows to `<path>`:
 service,image,os,package,version,origin,search_term,status,detail
 ```
 
-`status` is one of `match`, `no_match`, `skip` (image failed to pull —
+`status` is one of `match`, `no_match`, `skip` (image failed to pull,
 `detail` has the reason), or `error` (in-container scan failed). If
 `<path>` already exists you'll be prompted before it's overwritten, unless
 you pass `--force`.
 
 ## A note on staying current
 
-Bitwarden has changed both its container registry (Docker Hub → `ghcr.io`)
-and its versioning scheme (unified core/web/key-connector version numbers
-→ tracked separately) at least once. If a service starts reporting
-`[skip] could not pull ...` across the board, check
+Bitwarden has changed both its container registry (Docker Hub to
+`ghcr.io`) and its versioning scheme (unified core/web/key-connector
+version numbers, now tracked separately) at least once. If a service
+starts reporting `[skip] could not pull ...` across the board, check
 `https://github.com/bitwarden/self-host/blob/v<RELEASE>/version.json` and
 the package list at `https://github.com/orgs/bitwarden/packages?repo_name=self-host`
 before assuming the script is broken.

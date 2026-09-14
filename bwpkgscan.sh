@@ -4,7 +4,7 @@
 # in-container scan logic is embedded below and piped in over stdin.
 #
 # Registry: ghcr.io/bitwarden/<name> (not Docker Hub). Core and web version
-# independently — see version.json in a given release tag on
+# independently. See version.json in a given release tag on
 # github.com/bitwarden/self-host if they diverge.
 #
 # Package matching uses each distro's own origin/source metadata (dpkg's
@@ -12,7 +12,7 @@
 # libssl3/libcrypto3 with nothing to maintain as packages get renamed.
 #
 # This does not perform a real install (no compose, no DB, no license
-# key) — it only pulls the images and inspects package metadata.
+# key). It only pulls the images and inspects package metadata.
 #
 # Usage:
 #   ./bwpkgscan.sh <core-version> <package1> [package2 ...]
