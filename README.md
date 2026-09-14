@@ -1,13 +1,12 @@
 # bwpkgscan
 
-Fast, repeatable OS-package auditing for [Bitwarden's official self-host
-release](https://github.com/bitwarden/self-host) — for a given release
-version, pull every published service image and report installed package
-versions inside each one, without standing up a real deployment.
-
-Useful for checking whether a given Bitwarden release still ships a
-vulnerable version of `openssl`, `curl`, etc. across its whole image set,
-before you actually upgrade a live install.
+Internal tool for answering customer-requested vulnerability scans against
+[Bitwarden's official self-host release](https://github.com/bitwarden/self-host).
+When a customer asks "is version X affected by CVE-YYYY (which lives in
+`openssl`/`curl`/etc.)?", this pulls every published service image for
+that release and reports installed package versions in each one — without
+standing up a real deployment, so the answer doesn't require provisioning
+the customer's exact version just to check it.
 
 ## What this does *not* do
 
@@ -15,6 +14,9 @@ before you actually upgrade a live install.
   installation ID/key. It only pulls each image and inspects its package
   metadata — no real Bitwarden instance is ever running.
 - Does **not** modify or touch an existing Bitwarden install on the host.
+- Does **not** determine CVE applicability on its own — it reports
+  installed package versions so you can cross-reference them against the
+  CVE/advisory the customer is asking about.
 
 ## Requirements
 
@@ -30,7 +32,9 @@ before you actually upgrade a live install.
 ```
 
 This pulls every image in that Bitwarden release and reports which
-installed packages match `curl` or `openssl` in each one.
+installed packages match `curl` or `openssl` in each one — e.g. to check
+a customer's reported version against a CVE affecting one of those
+packages.
 
 ## How package matching works
 
@@ -66,12 +70,11 @@ Usage: bwpkgscan.sh [options] <core-version> <package1> [package2 ...]
 ```
 
 Every image Bitwarden publishes for a release is scanned by default:
-`admin api attachments icons identity notifications nginx sso events scim
-mssqlmigratorutility setup lite web`. Ones that aren't persistent,
-always-on containers in a standard install (one-shot utilities,
-enterprise-only add-ons, the alternate all-in-one `lite` deployment) are
-still scanned, but flagged with a short note so you know what you're
-looking at.
+`admin api attachments icons identity nginx notifications web` (standard,
+persistent services), then `events lite mssqlmigratorutility scim setup
+sso` (each flagged with a short note — one-shot utility, alternate deploy
+mode, or opt-in enterprise add-on — since they aren't part of a default
+customer install the same way the first group is).
 
 **Excluded by default, on purpose:**
 - `mssql` — versioned independently of the Bitwarden release (SQL Server
