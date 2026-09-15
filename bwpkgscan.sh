@@ -17,7 +17,6 @@
 # Usage:
 #   ./bwpkgscan.sh <core-version> <package1> [package2 ...]
 #   ./bwpkgscan.sh --webv <ver> <core-version> <pkg1> [pkg2 ...]
-#   ./bwpkgscan.sh --keyconnectorv <ver> <core-version> <pkg1> [pkg2 ...]
 #   ./bwpkgscan.sh --services api,identity,web <core-version> <pkg1> [pkg2 ...]
 
 set -euo pipefail
@@ -28,10 +27,9 @@ readonly IMAGE_REPO="ghcr.io/bitwarden"
 # mode, or opt-in enterprise add-on) at the bottom, from service_note()
 # below.
 readonly SERVICES_STANDARD="admin api attachments icons identity nginx notifications web"
-readonly SERVICES_WITH_NOTES="events key-connector lite mssqlmigratorutility scim setup sso"
+readonly SERVICES_WITH_NOTES="events lite mssqlmigratorutility scim setup sso"
 SERVICES="${SERVICES_STANDARD} ${SERVICES_WITH_NOTES}"
 WEBVER=""
-KEYCONNECTORVER=""
 CSV_FILE=""
 FORCE=false
 declare -a EXTRA_IMAGES=()
@@ -49,7 +47,6 @@ service_note() {
     sso) echo "enterprise, opt-in" ;;
     events) echo "enterprise, opt-in" ;;
     scim) echo "enterprise, opt-in" ;;
-    key-connector) echo "enterprise, opt-in" ;;
     mssqlmigratorutility) echo "one-shot migration helper" ;;
     setup) echo "one-shot config generator" ;;
     lite) echo "alt all-in-one deploy, not run with full stack" ;;
@@ -79,9 +76,9 @@ utilities, enterprise-only add-ons, the alternate "lite" deployment) get a
 [note] in the output rather than being silently skipped.
 
 Options:
-  --webv <version>            Web image version (default: same as core version)
-  --keyconnectorv <version>   Key Connector image version (default: latest;
-                               it doesn't follow the release-version scheme)
+  --webv <version>            Web image version (default: auto-detected from
+                               this release's version.json; falls back to
+                               core version if that can't be reached)
   --services svc1,svc2,...    Override the default (full) service list
   --extra-image name=repo:tag Scan an arbitrary additional image (repeatable)
   --csv <path>                Also write results as CSV to <path>
@@ -102,7 +99,6 @@ EOF
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --webv) WEBVER="$2"; shift 2 ;;
-    --keyconnectorv) KEYCONNECTORVER="$2"; shift 2 ;;
     --services) SERVICES="${2//,/ }"; shift 2 ;;
     --extra-image) EXTRA_IMAGES+=("$2"); shift 2 ;;
     --csv) CSV_FILE="$2"; shift 2 ;;
@@ -124,13 +120,36 @@ fi
 
 COREVER="$1"; shift
 PKGS="$*"
-WEBVER="${WEBVER:-$COREVER}"
-# key-connector doesn't follow the app's release-version scheme at all: its
-# last numbered tag was 2025.11.0, and everything since has been "dev",
-# branch-name, or raw sha256-digest tags. Defaulting to the core version
-# would fail for essentially every release after that. "latest" reliably
-# exists and is the closest thing it has to a stable tag.
-KEYCONNECTORVER="${KEYCONNECTORVER:-latest}"
+
+# Web can diverge from core by more than a point release (confirmed
+# repeatedly: core 2026.6.1 shipped with web 2026.6.3, core 2026.4.1 with
+# web 2026.4.2). Rather than assume they match, check this release's own
+# version.json, unless --webv was already given explicitly.
+if [[ -z "${WEBVER}" ]]; then
+  WEBVER_DETECTED=""
+  VERSION_JSON_URL="https://raw.githubusercontent.com/bitwarden/self-host/v${COREVER}/version.json"
+  if command -v curl >/dev/null 2>&1; then
+    VERSION_JSON="$(curl -fsSL "${VERSION_JSON_URL}" 2>/dev/null || true)"
+  elif command -v wget >/dev/null 2>&1; then
+    VERSION_JSON="$(wget -qO- "${VERSION_JSON_URL}" 2>/dev/null || true)"
+  else
+    VERSION_JSON=""
+  fi
+  if [[ -n "${VERSION_JSON}" ]]; then
+    WEBVER_DETECTED="$(printf '%s' "${VERSION_JSON}" | tr -d '\n\r ' | grep -o '"webVersion":"[^"]*"' | sed -E 's/.*:"([^"]*)".*/\1/')"
+  fi
+
+  if [[ -n "${WEBVER_DETECTED}" ]]; then
+    WEBVER="${WEBVER_DETECTED}"
+    if [[ "${WEBVER}" != "${COREVER}" ]]; then
+      echo "==> Note: web version (${WEBVER}) differs from core (${COREVER}) per this release's version.json"
+    fi
+  else
+    # No network, no curl/wget, or the release/file doesn't exist. Fall
+    # back to assuming they match rather than failing outright.
+    WEBVER="${COREVER}"
+  fi
+fi
 
 # Merge in any --pkgs-file contents: strip blank lines and whole-line
 # comments (#...), drop stray \r from Windows-edited files, then fold
@@ -244,6 +263,9 @@ if command -v dpkg-query >/dev/null 2>&1; then
     { name=$1; source=$2; ver=$3; gsub(/ *\(.*/, "", source); print name "\t" ver "\t" source }')
 elif command -v apk >/dev/null 2>&1; then
   OS="alpine"
+  if [ -r /etc/alpine-release ]; then
+    OS="alpine $(cat /etc/alpine-release 2>/dev/null)"
+  fi
   # Same one-time query and normalization for Alpine. extra = {origin},
   # the aport a package was split from (e.g. libssl3's origin is
   # "openssl"). Name/version are combined in apk's output ("name-version")
@@ -439,7 +461,7 @@ scan_image() {
   fi
 }
 
-echo "==> Core: ${COREVER}   Web: ${WEBVER}   Key Connector: ${KEYCONNECTORVER}"
+echo "==> Core: ${COREVER}   Web: ${WEBVER}"
 echo "==> Services: ${SERVICES}"
 echo "==> Packages: ${PKGS}"
 echo
@@ -447,7 +469,6 @@ echo
 for svc in ${SERVICES}; do
   case "${svc}" in
     web) scan_image "web" "${IMAGE_REPO}/web:${WEBVER}" ;;
-    key-connector) scan_image "key-connector" "${IMAGE_REPO}/key-connector:${KEYCONNECTORVER}" ;;
     *) scan_image "${svc}" "${IMAGE_REPO}/${svc}:${COREVER}" ;;
   esac
 done

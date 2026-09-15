@@ -41,13 +41,16 @@ You can also paste an exact versioned name straight out of
 `apk list --installed` or `dpkg -l` (e.g. `libcrypto3-3.5.7-r0`); the
 version is stripped automatically before matching.
 
+For Alpine images, the `os:` line in the output also shows the Alpine
+version (e.g. `os: alpine 3.20.3`), read from `/etc/alpine-release`.
+
 ## Options
 
 ```
 Usage: bwpkgscan.sh [options] <core-version> [package1 package2 ...]
 
-  --webv <version>            Web image version (default: same as core version)
-  --keyconnectorv <version>   Key Connector image version (default: latest)
+  --webv <version>            Web image version (default: auto-detected from
+                               this release's version.json)
   --services svc1,svc2,...    Override the default (full) service list
   --extra-image name=repo:tag Scan an arbitrary additional image (repeatable)
   --csv <path>                Write results as CSV instead of a console table
@@ -66,16 +69,11 @@ libcrypto3-3.5.7-r0
 ```
 
 Default scan set: `admin api attachments icons identity nginx
-notifications web`, then `events key-connector lite mssqlmigratorutility
-scim setup sso` (each flagged with a short note: one-shot utility,
-alternate deploy mode, or opt-in enterprise add-on). Web can diverge from
-the core release version, so it has its own `--webv` override.
-
-Key Connector doesn't follow the release-version scheme at all: its last
-numbered tag was `2025.11.0`, and everything published since has been
-`dev`, branch-name, or raw sha256-digest tags, no new numbered releases.
-It defaults to the `latest` tag rather than the core version; override
-with `--keyconnectorv` if you need a specific one.
+notifications web`, then `events lite mssqlmigratorutility scim setup
+sso` (each flagged with a short note: one-shot utility, alternate deploy
+mode, or opt-in enterprise add-on). Web's version is auto-detected rather
+than assumed to match core; use `--webv` to skip that lookup and set it
+directly.
 
 ## Examples
 
@@ -102,7 +100,20 @@ overwritten unless `--force` is passed.
 ## Staying current
 
 Bitwarden has changed registries (Docker Hub to `ghcr.io`) and versioning
-(core/web/key-connector now tracked separately) before. If everything
-starts `[skip]`ping, check
+(core and web now tracked separately) before. If everything starts
+`[skip]`ping, check
 `https://github.com/bitwarden/self-host/blob/v<RELEASE>/version.json`
 before assuming the script is broken.
+
+Two things worth checking before a scan:
+
+- Confirm the release actually exists at
+  `https://github.com/bitwarden/self-host/releases`. A link to a release
+  that doesn't exist (e.g. an anchor like `#release-vX.Y.Z`) silently
+  falls back to the top of the page instead of erroring, so it can look
+  real when it isn't.
+- Web version is now auto-detected from the release's own `version.json`,
+  since it often diverges from core by more than a point release (past
+  examples: core `2026.6.1` shipped with web `2026.6.3`; core `2026.4.1`
+  with web `2026.4.2`). The script prints a note when they differ. Pass
+  `--webv` yourself to skip this lookup.
