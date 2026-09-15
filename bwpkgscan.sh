@@ -80,7 +80,8 @@ utilities, enterprise-only add-ons, the alternate "lite" deployment) get a
 
 Options:
   --webv <version>            Web image version (default: same as core version)
-  --keyconnectorv <version>   Key Connector image version (default: same as core version)
+  --keyconnectorv <version>   Key Connector image version (default: latest;
+                               it doesn't follow the release-version scheme)
   --services svc1,svc2,...    Override the default (full) service list
   --extra-image name=repo:tag Scan an arbitrary additional image (repeatable)
   --csv <path>                Also write results as CSV to <path>
@@ -124,7 +125,12 @@ fi
 COREVER="$1"; shift
 PKGS="$*"
 WEBVER="${WEBVER:-$COREVER}"
-KEYCONNECTORVER="${KEYCONNECTORVER:-$COREVER}"
+# key-connector doesn't follow the app's release-version scheme at all: its
+# last numbered tag was 2025.11.0, and everything since has been "dev",
+# branch-name, or raw sha256-digest tags. Defaulting to the core version
+# would fail for essentially every release after that. "latest" reliably
+# exists and is the closest thing it has to a stable tag.
+KEYCONNECTORVER="${KEYCONNECTORVER:-latest}"
 
 # Merge in any --pkgs-file contents: strip blank lines and whole-line
 # comments (#...), drop stray \r from Windows-edited files, then fold

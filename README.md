@@ -47,7 +47,7 @@ version is stripped automatically before matching.
 Usage: bwpkgscan.sh [options] <core-version> [package1 package2 ...]
 
   --webv <version>            Web image version (default: same as core version)
-  --keyconnectorv <version>   Key Connector image version (default: same as core version)
+  --keyconnectorv <version>   Key Connector image version (default: latest)
   --services svc1,svc2,...    Override the default (full) service list
   --extra-image name=repo:tag Scan an arbitrary additional image (repeatable)
   --csv <path>                Write results as CSV instead of a console table
@@ -68,9 +68,14 @@ libcrypto3-3.5.7-r0
 Default scan set: `admin api attachments icons identity nginx
 notifications web`, then `events key-connector lite mssqlmigratorutility
 scim setup sso` (each flagged with a short note: one-shot utility,
-alternate deploy mode, or opt-in enterprise add-on). Web and Key Connector
-can each diverge from the core release version, so they have their own
-`--webv`/`--keyconnectorv` overrides.
+alternate deploy mode, or opt-in enterprise add-on). Web can diverge from
+the core release version, so it has its own `--webv` override.
+
+Key Connector doesn't follow the release-version scheme at all: its last
+numbered tag was `2025.11.0`, and everything published since has been
+`dev`, branch-name, or raw sha256-digest tags, no new numbered releases.
+It defaults to the `latest` tag rather than the core version; override
+with `--keyconnectorv` if you need a specific one.
 
 ## Examples
 
