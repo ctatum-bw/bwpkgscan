@@ -17,8 +17,8 @@
 # Usage:
 #   ./bwpkgscan.sh <core-version> <package1> [package2 ...]
 #   ./bwpkgscan.sh --webv <ver> <core-version> <pkg1> [pkg2 ...]
+#   ./bwpkgscan.sh --keyconnectorv <ver> <core-version> <pkg1> [pkg2 ...]
 #   ./bwpkgscan.sh --services api,identity,web <core-version> <pkg1> [pkg2 ...]
-#   ./bwpkgscan.sh --include-mssql <tag> <core-version> <pkg1> [pkg2 ...]
 
 set -euo pipefail
 
@@ -28,10 +28,10 @@ readonly IMAGE_REPO="ghcr.io/bitwarden"
 # mode, or opt-in enterprise add-on) at the bottom, from service_note()
 # below.
 readonly SERVICES_STANDARD="admin api attachments icons identity nginx notifications web"
-readonly SERVICES_WITH_NOTES="events lite mssqlmigratorutility scim setup sso"
+readonly SERVICES_WITH_NOTES="events key-connector lite mssqlmigratorutility scim setup sso"
 SERVICES="${SERVICES_STANDARD} ${SERVICES_WITH_NOTES}"
 WEBVER=""
-MSSQL_TAG=""
+KEYCONNECTORVER=""
 CSV_FILE=""
 FORCE=false
 declare -a EXTRA_IMAGES=()
@@ -49,6 +49,7 @@ service_note() {
     sso) echo "enterprise, opt-in" ;;
     events) echo "enterprise, opt-in" ;;
     scim) echo "enterprise, opt-in" ;;
+    key-connector) echo "enterprise, opt-in" ;;
     mssqlmigratorutility) echo "one-shot migration helper" ;;
     setup) echo "one-shot config generator" ;;
     lite) echo "alt all-in-one deploy, not run with full stack" ;;
@@ -77,18 +78,10 @@ Images that aren't persistent containers in a standard install (one-shot
 utilities, enterprise-only add-ons, the alternate "lite" deployment) get a
 [note] in the output rather than being silently skipped.
 
-mssql is versioned independently of the app release (SQL Server tags, not
-Bitwarden release numbers), so it stays opt-in via --include-mssql.
-
-key-connector is intentionally not scanned: it's not published under
-ghcr.io/bitwarden alongside everything else, and its Docker Hub tags don't
-line up with the release version scheme. Add it yourself if needed:
-  --extra-image key-connector=docker.io/bitwarden/key-connector:<tag>
-
 Options:
   --webv <version>            Web image version (default: same as core version)
+  --keyconnectorv <version>   Key Connector image version (default: same as core version)
   --services svc1,svc2,...    Override the default (full) service list
-  --include-mssql <tag>       Also scan ghcr.io/bitwarden/mssql:<tag>
   --extra-image name=repo:tag Scan an arbitrary additional image (repeatable)
   --csv <path>                Also write results as CSV to <path>
   --force                     Overwrite an existing --csv file without asking
@@ -99,7 +92,6 @@ Options:
 Examples:
   $(basename "$0") 2026.8.1 curl openssl
   $(basename "$0") --services admin,api,identity,web 2026.8.1 libssl3 curl
-  $(basename "$0") --include-mssql 2019-latest 2026.8.1 openssl
   $(basename "$0") --csv results.csv 2026.8.1 curl openssl
   $(basename "$0") --pkgs-file cve-2026-1234.txt 2026.8.1
 EOF
@@ -109,8 +101,8 @@ EOF
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --webv) WEBVER="$2"; shift 2 ;;
+    --keyconnectorv) KEYCONNECTORVER="$2"; shift 2 ;;
     --services) SERVICES="${2//,/ }"; shift 2 ;;
-    --include-mssql) MSSQL_TAG="$2"; shift 2 ;;
     --extra-image) EXTRA_IMAGES+=("$2"); shift 2 ;;
     --csv) CSV_FILE="$2"; shift 2 ;;
     --force) FORCE=true; shift ;;
@@ -132,6 +124,7 @@ fi
 COREVER="$1"; shift
 PKGS="$*"
 WEBVER="${WEBVER:-$COREVER}"
+KEYCONNECTORVER="${KEYCONNECTORVER:-$COREVER}"
 
 # Merge in any --pkgs-file contents: strip blank lines and whole-line
 # comments (#...), drop stray \r from Windows-edited files, then fold
@@ -209,9 +202,6 @@ fi
 # Progress bar bookkeeping (used only when QUIET=true)
 TOTAL=0
 for _ in ${SERVICES}; do TOTAL=$((TOTAL + 1)); done
-if [[ -n "${MSSQL_TAG}" ]]; then
-  TOTAL=$((TOTAL + 1))
-fi
 TOTAL=$((TOTAL + ${#EXTRA_IMAGES[@]}))
 COMPLETED=0
 
@@ -443,7 +433,7 @@ scan_image() {
   fi
 }
 
-echo "==> Core: ${COREVER}   Web: ${WEBVER}"
+echo "==> Core: ${COREVER}   Web: ${WEBVER}   Key Connector: ${KEYCONNECTORVER}"
 echo "==> Services: ${SERVICES}"
 echo "==> Packages: ${PKGS}"
 echo
@@ -451,13 +441,10 @@ echo
 for svc in ${SERVICES}; do
   case "${svc}" in
     web) scan_image "web" "${IMAGE_REPO}/web:${WEBVER}" ;;
+    key-connector) scan_image "key-connector" "${IMAGE_REPO}/key-connector:${KEYCONNECTORVER}" ;;
     *) scan_image "${svc}" "${IMAGE_REPO}/${svc}:${COREVER}" ;;
   esac
 done
-
-if [[ -n "${MSSQL_TAG}" ]]; then
-  scan_image "mssql" "${IMAGE_REPO}/mssql:${MSSQL_TAG}"
-fi
 
 for entry in "${EXTRA_IMAGES[@]+"${EXTRA_IMAGES[@]}"}"; do
   name="${entry%%=*}"

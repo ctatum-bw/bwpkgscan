@@ -16,8 +16,7 @@ CVE-YYYY in `openssl`/`curl`?") without standing up a real deployment.
 ## Requirements
 
 - Docker, runnable without extra setup (`sudo`, or in the `docker` group).
-- Network access to `ghcr.io` (and `docker.io` for `key-connector`, if
-  added via `--extra-image`).
+- Network access to `ghcr.io`.
 
 ## Quick start
 
@@ -48,8 +47,8 @@ version is stripped automatically before matching.
 Usage: bwpkgscan.sh [options] <core-version> [package1 package2 ...]
 
   --webv <version>            Web image version (default: same as core version)
+  --keyconnectorv <version>   Key Connector image version (default: same as core version)
   --services svc1,svc2,...    Override the default (full) service list
-  --include-mssql <tag>       Also scan ghcr.io/bitwarden/mssql:<tag>
   --extra-image name=repo:tag Scan an arbitrary additional image (repeatable)
   --csv <path>                Write results as CSV instead of a console table
   --force                     Overwrite an existing --csv file without asking
@@ -67,15 +66,11 @@ libcrypto3-3.5.7-r0
 ```
 
 Default scan set: `admin api attachments icons identity nginx
-notifications web`, then `events lite mssqlmigratorutility scim setup
-sso` (each flagged with a short note: one-shot utility, alternate deploy
-mode, or opt-in enterprise add-on).
-
-**Excluded by default:**
-- `mssql`: versioned independently of the release. Use `--include-mssql <tag>`.
-- `key-connector`: still on Docker Hub, not `ghcr.io`, and its tags don't
-  match the release scheme. Add manually:
-  `--extra-image key-connector=docker.io/bitwarden/key-connector:<tag>`
+notifications web`, then `events key-connector lite mssqlmigratorutility
+scim setup sso` (each flagged with a short note: one-shot utility,
+alternate deploy mode, or opt-in enterprise add-on). Web and Key Connector
+can each diverge from the core release version, so they have their own
+`--webv`/`--keyconnectorv` overrides.
 
 ## Examples
 
@@ -83,7 +78,6 @@ mode, or opt-in enterprise add-on).
 ./bwpkgscan.sh 2026.8.1 curl openssl
 ./bwpkgscan.sh --services admin,api,identity,web 2026.8.1 libssl3 curl
 ./bwpkgscan.sh --webv 2026.7.1 2026.8.1 openssl
-./bwpkgscan.sh --include-mssql 2019-latest 2026.8.1 openssl
 ./bwpkgscan.sh --csv results.csv 2026.8.1 curl openssl vim
 ./bwpkgscan.sh --pkgs-file cve-2026-1234.txt 2026.8.1
 ```
