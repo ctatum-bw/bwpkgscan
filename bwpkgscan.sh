@@ -7,8 +7,8 @@
 # independently. See version.json in a given release tag on
 # github.com/bitwarden/self-host if they diverge.
 #
-# Package matching uses each distro's own origin/source metadata (dpkg's
-# ${Source} field, apk's {origin} field), so e.g. "openssl" also matches
+# Package matching uses apk's own {origin} metadata (all Bitwarden
+# self-host images are Alpine-based), so e.g. "openssl" also matches
 # libssl3/libcrypto3 with nothing to maintain as packages get renamed.
 #
 # This does not perform a real install (no compose, no DB, no license
@@ -59,12 +59,11 @@ usage() {
 Usage: $(basename "$0") [options] <core-version> [package1 package2 ...]
 
 Each <packageN> is a search term matched against installed package names
-and their distro origin/source metadata, so "openssl" also finds
+and their apk {origin} metadata, so "openssl" also finds
 libssl3/libcrypto3. You can also pass a package's exact name as reported
-by the distro, version included (e.g. libcrypto3-3.5.7-r0 or
-curl-8.5.0-2ubuntu10.8) - the version part is trimmed off automatically
-before matching, so pasting one straight out of \`apk list --installed\`
-or \`dpkg -l\` output works as-is.
+by apk, version included (e.g. libcrypto3-3.5.7-r0) - the version part is
+trimmed off automatically before matching, so pasting one straight out of
+\`apk list --installed\` works as-is.
 
 Package names can also come from a file with --pkgs-file, instead of or
 alongside ones given on the command line.
@@ -251,25 +250,15 @@ draw_progress() {
 read -r -d '' INNER_SCRIPT <<'INNER_EOF' || true
 set -eu
 
-if command -v dpkg-query >/dev/null 2>&1; then
-  OS="debian"
-  # Query once, not once per search term. Reorder into a common
-  # name/version/extra shape (extra = Source) so the matcher below can be
-  # shared with Alpine instead of duplicated per distro. ${Source} is set
-  # when a package was built from a differently-named source package
-  # (e.g. libssl3t64's Source is "openssl"); strip the trailing
-  # "(version)" dpkg sometimes appends when it differs from the binary.
-  ALL_PKGS=$(dpkg-query -W -f='${Package}\t${Source}\t${Version}\n' 2>/dev/null | awk -F'\t' '
-    { name=$1; source=$2; ver=$3; gsub(/ *\(.*/, "", source); print name "\t" ver "\t" source }')
-elif command -v apk >/dev/null 2>&1; then
+if command -v apk >/dev/null 2>&1; then
   OS="alpine"
   if [ -r /etc/alpine-release ]; then
     OS="alpine $(cat /etc/alpine-release 2>/dev/null)"
   fi
-  # Same one-time query and normalization for Alpine. extra = {origin},
-  # the aport a package was split from (e.g. libssl3's origin is
-  # "openssl"). Name/version are combined in apk's output ("name-version")
-  # and split here, once, instead of on every search term.
+  # Query once, not once per search term. extra = {origin}, the aport a
+  # package was split from (e.g. libssl3's origin is "openssl"). Name and
+  # version are combined in apk's output ("name-version") and split here,
+  # once, into a common name/version/extra shape for the matcher below.
   ALL_PKGS=$(apk list --installed 2>/dev/null | awk '
     {
       nv=$1
@@ -285,7 +274,7 @@ elif command -v apk >/dev/null 2>&1; then
       print name "\t" ver "\t" origin
     }')
 else
-  echo "ERROR: no dpkg or apk found in this image" >&2
+  echo "ERROR: apk not found in this image (expected an Alpine base)" >&2
   exit 1
 fi
 
@@ -296,14 +285,13 @@ for term in ${PKGS}; do
   term_lc=$(printf '%s' "${term}" | tr 'A-Z' 'a-z')
 
   # If the search term itself looks like a full "name-version" string
-  # (e.g. copied straight out of `apk list --installed` or `dpkg -l`,
-  # such as libcrypto3-3.5.7-r0), strip the version part before matching.
-  # Splits at the *first* hyphen immediately followed by a digit, since
-  # that's the package-name/version boundary even when the version itself
-  # has multiple hyphenated segments (Debian's "8.5.0-2ubuntu10.8" style).
-  # Matching always happens against the bare package name/origin, and the
-  # actual installed version is reported regardless of what was searched
-  # for, so trimming here just makes pasting an exact name work as-is.
+  # (e.g. copied straight out of `apk list --installed`, such as
+  # libcrypto3-3.5.7-r0), strip the version part before matching. Splits
+  # at the *first* hyphen immediately followed by a digit, the
+  # package-name/version boundary. Matching always happens against the
+  # bare package name/origin, and the actual installed version is
+  # reported regardless of what was searched for, so trimming here just
+  # makes pasting an exact name work as-is.
   term_lc=$(printf '%s' "${term_lc}" | awk '
     {
       s = $0

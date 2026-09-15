@@ -26,20 +26,17 @@ CVE-YYYY in `openssl`/`curl`?") without standing up a real deployment.
 
 ## How matching works
 
-`openssl` also finds `libssl3`/`libcrypto3` because the script checks each
-distro's own origin/source metadata, not just the package name:
-
-- **Debian/Ubuntu (dpkg):** the `Source` field (`libssl3t64`'s Source is
-  `openssl`).
-- **Alpine (apk):** the `{origin}` field (`libssl3`'s origin is `openssl`).
+All Bitwarden self-host images are Alpine-based. `openssl` also finds
+`libssl3`/`libcrypto3` because the script checks apk's own `{origin}`
+metadata, not just the package name (`libssl3`'s origin is `openssl`).
 
 Matches are anchored to a word boundary (start of name, optional `lib`
 prefix, end, hyphen, or a digit), so `cat` won't match inside
 `certificates`, but `curl` still matches `libcurl`.
 
 You can also paste an exact versioned name straight out of
-`apk list --installed` or `dpkg -l` (e.g. `libcrypto3-3.5.7-r0`); the
-version is stripped automatically before matching.
+`apk list --installed` (e.g. `libcrypto3-3.5.7-r0`); the version is
+stripped automatically before matching.
 
 For Alpine images, the `os:` line in the output also shows the Alpine
 version (e.g. `os: alpine 3.20.3`), read from `/etc/alpine-release`.
