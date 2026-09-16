@@ -26,7 +26,9 @@ CVE-YYYY in `openssl`/`curl`?") without standing up a real deployment.
 
 ## How matching works
 
-All Bitwarden self-host images are Alpine-based. `openssl` also finds
+This tool only scans the Bitwarden container images that are Alpin Linux based. This excludes the mssql and key-connector containers. 
+
+`openssl` also finds
 `libssl3`/`libcrypto3` because the script checks apk's own `{origin}`
 metadata, not just the package name (`libssl3`'s origin is `openssl`).
 
