@@ -10,8 +10,8 @@ CVE-YYYY in `openssl`/`curl`?") without standing up a real deployment.
 - Doesn't run `docker-compose`, spin up MSSQL, or register an install ID.
   It only pulls images and inspects package metadata.
 - Doesn't modify or touch an existing Bitwarden install.
-- Doesn't judge CVE applicability. It reports installed versions; you
-  cross-reference against the advisory.
+- Doesn't judge CVE applicability. It reports installed versions; you cross-reference against the advisory.
+- Doesn't scan the Debian-based container images (mssql and key-connector).
 
 ## Requirements
 
