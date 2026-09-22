@@ -10,8 +10,8 @@ CVE-YYYY in `openssl`/`curl`?") without standing up a real deployment.
 - Doesn't run `docker-compose`, spin up MSSQL, or register an install ID.
   It only pulls images and inspects package metadata.
 - Doesn't modify or touch an existing Bitwarden install.
-- Doesn't judge CVE applicability. It reports installed versions; you cross-reference against the advisory.
-- Doesn't scan the Debian-based container images (mssql and key-connector).
+- Doesn't judge CVE applicability. It reports installed versions; you
+  cross-reference against the advisory.
 
 ## Requirements
 
@@ -26,9 +26,7 @@ CVE-YYYY in `openssl`/`curl`?") without standing up a real deployment.
 
 ## How matching works
 
-This tool only scans the Bitwarden container images that are Alpine Linux based. This excludes the mssql and key-connector containers. 
-
-`openssl` also finds
+All Bitwarden self-host images are Alpine-based. `openssl` also finds
 `libssl3`/`libcrypto3` because the script checks apk's own `{origin}`
 metadata, not just the package name (`libssl3`'s origin is `openssl`).
 
@@ -104,14 +102,17 @@ Bitwarden has changed registries (Docker Hub to `ghcr.io`) and versioning
 `https://github.com/bitwarden/self-host/blob/v<RELEASE>/version.json`
 before assuming the script is broken.
 
-Two things worth checking before a scan:
+Two things worth knowing:
 
-- Confirm the release actually exists at
-  `https://github.com/bitwarden/self-host/releases`. A link to a release
+- The script now checks whether `<core-version>` is a real release before
+  scanning anything (requires `curl`). If it isn't, you'll see a warning
+  up front instead of every image failing to pull one by one. You can
+  still double-check yourself at
+  `https://github.com/bitwarden/self-host/releases`; a link to a release
   that doesn't exist (e.g. an anchor like `#release-vX.Y.Z`) silently
   falls back to the top of the page instead of erroring, so it can look
   real when it isn't.
-- Web version is now auto-detected from the release's own `version.json`,
+- Web version is auto-detected from the release's own `version.json`,
   since it often diverges from core by more than a point release (past
   examples: core `2026.6.1` shipped with web `2026.6.3`; core `2026.4.1`
   with web `2026.4.2`). The script prints a note when they differ. Pass

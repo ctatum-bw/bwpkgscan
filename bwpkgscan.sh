@@ -74,6 +74,17 @@ Images that aren't persistent containers in a standard install (one-shot
 utilities, enterprise-only add-ons, the alternate "lite" deployment) get a
 [note] in the output rather than being silently skipped.
 
+After scanning, any matched package running an older version than the
+newest one seen elsewhere in the scan is called out in a "Version check"
+summary, highlighted in red, e.g. one service still on an older libssl3
+than the rest.
+
+Before scanning, if curl is available, the given <core-version> is
+checked against bitwarden/self-host's actual releases. A version number
+that was never published (e.g. guessing a patch bump that hasn't shipped)
+gets a warning up front instead of every image failing to pull one by one
+with no explanation why.
+
 Options:
   --webv <version>            Web image version (default: auto-detected from
                                this release's version.json; falls back to
@@ -122,18 +133,35 @@ PKGS="$*"
 
 # Web can diverge from core by more than a point release (confirmed
 # repeatedly: core 2026.6.1 shipped with web 2026.6.3, core 2026.4.1 with
+# Check whether v<core-version> is actually a real bitwarden/self-host
+# release before scanning anything. A version number that looks plausible
+# but was never published (e.g. guessing a patch bump that hasn't shipped)
+# would otherwise make every single image fail to pull, one at a time,
+# with no indication of why until you'd sat through all of them.
+VERSION_JSON_URL="https://raw.githubusercontent.com/bitwarden/self-host/v${COREVER}/version.json"
+HTTP_STATUS=""
+VERSION_JSON=""
+if command -v curl >/dev/null 2>&1; then
+  HTTP_STATUS="$(curl -s -o /dev/null -w '%{http_code}' "${VERSION_JSON_URL}" 2>/dev/null)"
+  VERSION_JSON="$(curl -fsSL "${VERSION_JSON_URL}" 2>/dev/null || true)"
+elif command -v wget >/dev/null 2>&1; then
+  VERSION_JSON="$(wget -qO- "${VERSION_JSON_URL}" 2>/dev/null || true)"
+fi
+
+if [[ "${HTTP_STATUS}" == "404" ]]; then
+  echo "==> Warning: v${COREVER} does not appear to be a real bitwarden/self-host release."
+  echo "             Check https://github.com/bitwarden/self-host/releases for the actual"
+  echo "             latest version before continuing. Every image below will likely fail"
+  echo "             to pull if this version was never released."
+  echo
+fi
+
+# Web can diverge from core by more than a point release (confirmed
+# repeatedly: core 2026.6.1 shipped with web 2026.6.3, core 2026.4.1 with
 # web 2026.4.2). Rather than assume they match, check this release's own
 # version.json, unless --webv was already given explicitly.
 if [[ -z "${WEBVER}" ]]; then
   WEBVER_DETECTED=""
-  VERSION_JSON_URL="https://raw.githubusercontent.com/bitwarden/self-host/v${COREVER}/version.json"
-  if command -v curl >/dev/null 2>&1; then
-    VERSION_JSON="$(curl -fsSL "${VERSION_JSON_URL}" 2>/dev/null || true)"
-  elif command -v wget >/dev/null 2>&1; then
-    VERSION_JSON="$(wget -qO- "${VERSION_JSON_URL}" 2>/dev/null || true)"
-  else
-    VERSION_JSON=""
-  fi
   if [[ -n "${VERSION_JSON}" ]]; then
     WEBVER_DETECTED="$(printf '%s' "${VERSION_JSON}" | tr -d '\n\r ' | grep -o '"webVersion":"[^"]*"' | sed -E 's/.*:"([^"]*)".*/\1/')"
   fi
@@ -222,6 +250,13 @@ fi
 if [[ -n "${CSV_FILE}" ]]; then
   echo "service,image,os,package,version,origin,search_term,status,detail" > "${CSV_FILE}"
 fi
+
+# Tracks every matched package/version across all scanned images (not just
+# when --csv is used) so we can flag versions that disagree with the
+# majority once everything's done, e.g. one service on an older libssl3
+# than the rest. Cleaned up on exit regardless of how the script ends.
+VERSION_LOG="$(mktemp 2>/dev/null || echo "/tmp/bwpkgscan_versions.$$")"
+trap 'rm -f "${VERSION_LOG}"' EXIT
 
 # Progress bar bookkeeping (used only when QUIET=true)
 TOTAL=0
@@ -410,6 +445,9 @@ scan_image() {
       CSVROW$'\t'*)
         IFS=$'\t' read -r pkg ver origin term rowstatus <<< "${line#CSVROW$'\t'}"
         csv_row "${label}" "${image}" "${os}" "${pkg}" "${ver}" "${origin}" "${term}" "${rowstatus}" ""
+        if [[ "${rowstatus}" == "match" ]]; then
+          printf '%s\t%s\t%s\n' "${label}" "${pkg}" "${ver}" >> "${VERSION_LOG}"
+        fi
         ;;
       *)
         if [[ "${QUIET}" != true ]]; then
@@ -470,6 +508,62 @@ done
 if [[ "${QUIET}" == true ]]; then
   echo
 fi
+
+if [[ -s "${VERSION_LOG}" ]]; then
+  outdated="$(awk -F'\t' '
+    # Normalizes a version string into a key that compares correctly as a
+    # plain string: runs of digits are zero-padded to a fixed width (so
+    # "10" sorts after "5", and "3.10.0" after "3.5.7"), non-digit runs
+    # (".", "-r", etc.) are kept as-is. Avoids relying on `sort -V`, which
+    # is not available on the BSD sort macOS ships.
+    function verskey(v,   i, n, c, t, prevt, buf, out) {
+      n = length(v)
+      out = ""; buf = ""; prevt = ""
+      for (i = 1; i <= n; i++) {
+        c = substr(v, i, 1)
+        t = (c ~ /[0-9]/) ? "d" : "s"
+        if (prevt != "" && t != prevt) {
+          if (prevt == "d") out = out sprintf("%012d", buf)
+          else out = out buf
+          buf = ""
+        }
+        buf = buf c
+        prevt = t
+      }
+      if (buf != "") {
+        if (prevt == "d") out = out sprintf("%012d", buf)
+        else out = out buf
+      }
+      return out
+    }
+    {
+      svc=$1; pkg=$2; ver=$3
+      key = verskey(ver)
+      n++
+      rowsvc[n]=svc; rowpkg[n]=pkg; rowver[n]=ver; rowkey[n]=key
+      if (!(pkg in maxkey) || key > maxkey[pkg]) {
+        maxkey[pkg] = key
+        maxver[pkg] = ver
+      }
+    }
+    END {
+      for (i = 1; i <= n; i++) {
+        if (rowkey[i] < maxkey[rowpkg[i]]) {
+          print rowsvc[i] "\t" rowpkg[i] "\t" rowver[i] "\t" maxver[rowpkg[i]]
+        }
+      }
+    }' "${VERSION_LOG}")"
+
+  if [[ -n "${outdated}" ]]; then
+    echo "==> Version check: these are older than the newest version seen for that package"
+    echo
+    printf '%s\n' "${outdated}" | while IFS=$'\t' read -r svc pkg ver newest; do
+      printf '  %-20s %-25s %s%s%s (newest seen: %s)\n' "${svc}" "${pkg}" "${RED}" "${ver}" "${RESET}" "${newest}"
+    done
+    echo
+  fi
+fi
+
 echo "==> Done."
 if [[ -n "${CSV_FILE}" ]]; then
   echo "==> CSV written to ${CSV_FILE}"
