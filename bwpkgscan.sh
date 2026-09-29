@@ -298,29 +298,13 @@ if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
 fi
 
 # Pulls each image in the background, PREFETCH_CONCURRENCY at a time, then
-# waits for that batch before the next. Prints a line as each pull starts
-# and finishes (with elapsed time), then a summary. Not used by --local:
-# those containers are already running, nothing to pull.
+# waits for that batch before the next. Silent: failures are ignored here
+# and reported per-service by scan_image. Not used by --local.
 PREFETCH_CONCURRENCY=4
 prefetch_images() {
-  local total=$# n=0 batch_count=0 image failed=0 status_dir
-  status_dir="$(mktemp -d 2>/dev/null || echo "/tmp/bwpkgscan_prefetch.$$")"
-  mkdir -p "${status_dir}"
-  local overall_start=$SECONDS
-
+  local image batch_count=0
   for image in "$@"; do
-    n=$((n + 1))
-    echo "  ${DIM}[${n}/${total}] pulling${RESET} ${image}"
-    (
-      start=$(date +%s)
-      if docker pull "${image}" >/dev/null 2>"${status_dir}/${n}.err"; then
-        echo 0 > "${status_dir}/${n}"
-        echo "  ${GREEN}[${n}/${total}] done${RESET}    ${image} ($(( $(date +%s) - start ))s)"
-      else
-        echo 1 > "${status_dir}/${n}"
-        echo "  ${RED}[${n}/${total}] FAILED${RESET}  ${image}: $(tail -n 1 "${status_dir}/${n}.err" 2>/dev/null)"
-      fi
-    ) &
+    docker pull "${image}" >/dev/null 2>&1 &
     batch_count=$((batch_count + 1))
     if (( batch_count >= PREFETCH_CONCURRENCY )); then
       wait
@@ -328,13 +312,6 @@ prefetch_images() {
     fi
   done
   wait
-
-  for ((n = 1; n <= total; n++)); do
-    [[ "$(cat "${status_dir}/${n}" 2>/dev/null)" == "0" ]] || failed=$((failed + 1))
-  done
-  rm -rf "${status_dir}"
-  echo "==> Pre-pull finished in $(( SECONDS - overall_start ))s: $(( total - failed )) ok, ${failed} failed"
-  echo
 }
 
 if [[ "${LOCAL_MODE}" != true ]]; then

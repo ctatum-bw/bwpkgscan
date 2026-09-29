@@ -96,15 +96,8 @@ when packages get renamed.
 2. **Web version.** Core and web are versioned independently. The script reads the
    release's `version.json` to find the right web version and prints a note when it
    differs from core. Use `--webv` to set it yourself.
-3. **Pre-pull.** Images are pulled in parallel, 4 at a time, with a live line as each
-   pull starts and finishes (with elapsed time) and a summary at the end:
-
-   ```
-   [1/14] pulling ghcr.io/bitwarden/admin:2026.8.1
-   [1/14] done    ghcr.io/bitwarden/admin:2026.8.1 (12s)
-   [3/14] FAILED  ghcr.io/bitwarden/icons:2026.8.1: manifest unknown
-   ==> Pre-pull finished in 41s: 13 ok, 1 failed
-   ```
+3. **Pre-pull.** Images are pulled in parallel, 4 at a time, so the downloads overlap.
+   Failures are reported per service in the next step.
 
 4. **Scan.** Each image is inspected in turn and results are printed per service.
 
@@ -170,7 +163,7 @@ An existing file prompts before being overwritten unless `--force` is passed.
   releases page, so it can look real when it isn't.
 - **Warning that the version isn't a real release.** The version was never published
   (or has a typo). Check the releases page for the actual latest version.
-- **Slow before any pull messages appear.** That's the version check reaching out to
+- **Slow before the "Pre-pulling" message appears.** That's the version check reaching out to
   `raw.githubusercontent.com`. It gives up after 10 seconds and continues.
 - **`no running containers found` in `--local` mode.** The stack isn't up, or its
   images aren't under the registries above. Check with `docker ps`.
