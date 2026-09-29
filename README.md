@@ -1,119 +1,178 @@
 # bwpkgscan
 
-Pulls every published image for a given Bitwarden self-host release and
-reports installed package versions in each one, for answering
-customer-requested vulnerability scans (e.g. "is version X affected by
-CVE-YYYY in `openssl`/`curl`?") without standing up a real deployment.
+Reports installed package versions inside Bitwarden self-host images, for answering
+customer vulnerability questions (e.g. "is version X affected by CVE-YYYY in
+`openssl`/`curl`?") without standing up a real deployment.
 
-## What this does *not* do
+It can scan either:
 
-- Doesn't run `docker-compose`, spin up MSSQL, or register an install ID.
-  It only pulls images and inspects package metadata.
-- Doesn't modify or touch an existing Bitwarden install.
-- Doesn't judge CVE applicability. It reports installed versions; you
-  cross-reference against the advisory.
+- **A published release**: pulls every image for a given version and inspects each one.
+- **A running instance** (`--local`): inspects the Bitwarden containers already running
+  on this machine, no version needed.
+
+## What it does not do
+
+- Doesn't run `docker-compose`, start MSSQL, or register an install ID.
+- Doesn't modify an existing Bitwarden install. `--local` only runs a read-only
+  package query inside each container.
+- Doesn't judge CVE applicability. It reports installed versions; you compare them
+  against the advisory.
 
 ## Requirements
 
-- Docker, runnable without extra setup (`sudo`, or in the `docker` group).
-- Network access to `ghcr.io`.
+- Docker, runnable without extra setup (`sudo`, or membership in the `docker` group).
+- Network access to `ghcr.io` (release mode only).
+- `curl` or `wget` (optional): used to validate the release version and detect the web
+  version. Without them the script still runs and assumes web matches core.
+- Works with macOS's default bash 3.2.
 
 ## Quick start
 
 ```bash
+# Scan a published release
 ./bwpkgscan.sh 2026.8.1 curl openssl
+
+# Scan what's running locally (no version)
+./bwpkgscan.sh --local curl openssl
 ```
 
-## How matching works
-
-All Bitwarden self-host images are Alpine-based. `openssl` also finds
-`libssl3`/`libcrypto3` because the script checks apk's own `{origin}`
-metadata, not just the package name (`libssl3`'s origin is `openssl`).
-
-Matches are anchored to a word boundary (start of name, optional `lib`
-prefix, end, hyphen, or a digit), so `cat` won't match inside
-`certificates`, but `curl` still matches `libcurl`.
-
-You can also paste an exact versioned name straight out of
-`apk list --installed` (e.g. `libcrypto3-3.5.7-r0`); the version is
-stripped automatically before matching.
-
-For Alpine images, the `os:` line in the output also shows the Alpine
-version (e.g. `os: alpine 3.20.3`), read from `/etc/alpine-release`.
-
-## Options
+## Usage
 
 ```
-Usage: bwpkgscan.sh [options] <core-version> [package1 package2 ...]
-
-  --webv <version>            Web image version (default: auto-detected from
-                               this release's version.json)
-  --services svc1,svc2,...    Override the default (full) service list
-  --extra-image name=repo:tag Scan an arbitrary additional image (repeatable)
-  --csv <path>                Write results as CSV instead of a console table
-  --force                     Overwrite an existing --csv file without asking
-  --pkgs-file <path>          Read package names from a file (repeatable)
+bwpkgscan.sh [options] <core-version> [package ...]
+bwpkgscan.sh --local [options] [package ...]
 ```
 
-`--pkgs-file` names can be combined with ones on the command line. One or
-more per line; blank lines and `#` comments are ignored:
+Options go before the version and package names.
 
-```
-# CVE-2026-1234
-curl
-openssl
-libcrypto3-3.5.7-r0
-```
+| Option | Description |
+| --- | --- |
+| `--local` | Scan running containers instead of pulling a version. |
+| `--webv <version>` | Web image version. Default: auto-detected from the release's `version.json`. |
+| `--services svc1,svc2,...` | Only scan these services. |
+| `--extra-image name=repo:tag` | Scan an additional image (repeatable). With `--local`, give `name=container_name` instead. |
+| `--csv <path>` | Write results to CSV instead of console tables. |
+| `--force` | Overwrite an existing `--csv` file without prompting. |
+| `--pkgs-file <path>` | Read package names from a file (repeatable). |
 
-Default scan set: `admin api attachments icons identity nginx
-notifications web`, then `events lite mssqlmigratorutility scim setup
-sso` (each flagged with a short note: one-shot utility, alternate deploy
-mode, or opt-in enterprise add-on). Web's version is auto-detected rather
-than assumed to match core; use `--webv` to skip that lookup and set it
-directly.
-
-## Examples
+### Examples
 
 ```bash
 ./bwpkgscan.sh 2026.8.1 curl openssl
-./bwpkgscan.sh --services admin,api,identity,web 2026.8.1 libssl3 curl
+./bwpkgscan.sh --services admin,api,web 2026.8.1 libssl3 curl
 ./bwpkgscan.sh --webv 2026.7.1 2026.8.1 openssl
 ./bwpkgscan.sh --csv results.csv 2026.8.1 curl openssl vim
 ./bwpkgscan.sh --pkgs-file cve-2026-1234.txt 2026.8.1
+./bwpkgscan.sh --local --services admin,api libssl3 curl
 ```
 
-## CSV output
+## Package matching
 
-`--csv <path>` swaps the console tables for a progress bar and writes:
+All Bitwarden self-host images are Alpine-based. Search terms are matched against
+each installed package's name **and** its apk `{origin}` metadata, so `openssl` also
+finds `libssl3` and `libcrypto3` (their origin is `openssl`). Nothing needs updating
+when packages get renamed.
+
+- Matches are anchored to a word boundary, so `cat` won't match inside `certificates`,
+  but `curl` still matches `libcurl`.
+- You can paste an exact versioned name straight from `apk list --installed`
+  (e.g. `libcrypto3-3.5.7-r0`). The version is stripped before matching.
+- With `--pkgs-file`, put one or more names per line. Blank lines and `#` comments are
+  ignored.
+
+  ```
+  # CVE-2026-1234
+  curl
+  openssl
+  libcrypto3-3.5.7-r0
+  ```
+
+## Release mode
+
+1. **Version check.** If `curl` is available, the script confirms
+   `<core-version>` is a real `bitwarden/self-host` release and warns up front if it
+   isn't, instead of every image failing to pull one at a time. The check times out
+   after 10 seconds so an unreachable network can't stall the run.
+2. **Web version.** Core and web are versioned independently. The script reads the
+   release's `version.json` to find the right web version and prints a note when it
+   differs from core. Use `--webv` to set it yourself.
+3. **Pre-pull.** Images are pulled in parallel, 4 at a time, with a live line as each
+   pull starts and finishes (with elapsed time) and a summary at the end:
+
+   ```
+   [1/14] pulling ghcr.io/bitwarden/admin:2026.8.1
+   [1/14] done    ghcr.io/bitwarden/admin:2026.8.1 (12s)
+   [3/14] FAILED  ghcr.io/bitwarden/icons:2026.8.1: manifest unknown
+   ==> Pre-pull finished in 41s: 13 ok, 1 failed
+   ```
+
+4. **Scan.** Each image is inspected in turn and results are printed per service.
+
+Default service set (each is scanned unless you pass `--services`):
+
+```
+admin api attachments icons identity nginx notifications web
+events lite mssqlmigratorutility scim setup sso
+```
+
+The last six aren't persistent containers in a standard install, so they're labeled
+in the output: `events`, `scim` and `sso` are opt-in enterprise add-ons,
+`mssqlmigratorutility` and `setup` are one-shot utilities, and `lite` is the alternate
+all-in-one deployment.
+
+## Local mode (`--local`)
+
+Scans whatever is already running, with no version argument and no pulling.
+
+- Detects **any** running container whose image is under `ghcr.io/bitwarden/` or
+  `bitwardenprod.azurecr.io/` (release candidates, e.g. `.../web:rc`), regardless of
+  service name. Services the script doesn't know about are still picked up.
+- Containers are scanned in alphabetical order by container name.
+- `--services` narrows the scan to specific service names.
+- `--extra-image name=container_name` adds another running container by name.
+- Exits with an error if no matching containers are found.
+
+## Output
+
+After all scans, any matched package running an older version than the newest one seen
+for that package elsewhere in the scan is listed under **Version check** in red,
+for example one service still on an older `libssl3` than the rest.
+
+Colors turn off automatically when output is piped or redirected, or when `NO_COLOR`
+is set.
+
+### CSV
+
+`--csv <path>` replaces the console tables with a progress bar and writes:
 
 ```
 service,image,os,package,version,origin,search_term,status,detail
 ```
 
-`status` is `match`, `no_match`, `skip` (pull failed, see `detail`), or
-`error` (in-container scan failed). Existing files prompt before being
-overwritten unless `--force` is passed.
+`status` is one of:
 
-## Staying current
+| Status | Meaning |
+| --- | --- |
+| `match` | Package found. |
+| `no_match` | Search term matched nothing in that image. |
+| `skip` | Pull failed or container not running (see `detail`). |
+| `error` | The scan failed inside the container (e.g. no shell). |
 
-Bitwarden has changed registries (Docker Hub to `ghcr.io`) and versioning
-(core and web now tracked separately) before. If everything starts
-`[skip]`ping, check
-`https://github.com/bitwarden/self-host/blob/v<RELEASE>/version.json`
-before assuming the script is broken.
+An existing file prompts before being overwritten unless `--force` is passed.
 
-Two things worth knowing:
+## Troubleshooting
 
-- The script now checks whether `<core-version>` is a real release before
-  scanning anything (requires `curl`). If it isn't, you'll see a warning
-  up front instead of every image failing to pull one by one. You can
-  still double-check yourself at
-  `https://github.com/bitwarden/self-host/releases`; a link to a release
-  that doesn't exist (e.g. an anchor like `#release-vX.Y.Z`) silently
-  falls back to the top of the page instead of erroring, so it can look
-  real when it isn't.
-- Web version is auto-detected from the release's own `version.json`,
-  since it often diverges from core by more than a point release (past
-  examples: core `2026.6.1` shipped with web `2026.6.3`; core `2026.4.1`
-  with web `2026.4.2`). The script prints a note when they differ. Pass
-  `--webv` yourself to skip this lookup.
+- **Everything is `[skip]`ping.** Bitwarden has changed registries (Docker Hub to
+  `ghcr.io`) and versioning before. Check
+  `https://github.com/bitwarden/self-host/blob/v<RELEASE>/version.json` and
+  `https://github.com/bitwarden/self-host/releases` before assuming the script is
+  broken. A release link that doesn't exist can silently fall back to the top of the
+  releases page, so it can look real when it isn't.
+- **Warning that the version isn't a real release.** The version was never published
+  (or has a typo). Check the releases page for the actual latest version.
+- **Slow before any pull messages appear.** That's the version check reaching out to
+  `raw.githubusercontent.com`. It gives up after 10 seconds and continues.
+- **`no running containers found` in `--local` mode.** The stack isn't up, or its
+  images aren't under the registries above. Check with `docker ps`.
+- **`scan failed (no shell, or unsupported base)`.** The container has no `sh`, or
+  isn't Alpine-based. The script warns on that service and continues with the rest.
